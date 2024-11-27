@@ -5,9 +5,10 @@ import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.framework.mybatis.core.query.MPJLambdaWrapperX;
 import cn.iocoder.yudao.module.crm.controller.admin.business.vo.business.CrmBusinessPageReqVO;
+import cn.iocoder.yudao.module.crm.controller.admin.statistics.vo.funnel.CrmStatisticsFunnelReqVO;
 import cn.iocoder.yudao.module.crm.dal.dataobject.business.CrmBusinessDO;
 import cn.iocoder.yudao.module.crm.enums.common.CrmBizTypeEnum;
-import cn.iocoder.yudao.module.crm.util.CrmQueryWrapperUtils;
+import cn.iocoder.yudao.module.crm.util.CrmPermissionUtils;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.apache.ibatis.annotations.Mapper;
 
@@ -45,8 +46,8 @@ public interface CrmBusinessMapper extends BaseMapperX<CrmBusinessDO> {
     default PageResult<CrmBusinessDO> selectPage(CrmBusinessPageReqVO pageReqVO, Long userId) {
         MPJLambdaWrapperX<CrmBusinessDO> query = new MPJLambdaWrapperX<>();
         // 拼接数据权限的查询条件
-        CrmQueryWrapperUtils.appendPermissionCondition(query, CrmBizTypeEnum.CRM_BUSINESS.getType(),
-                CrmBusinessDO::getId, userId, pageReqVO.getSceneType(), Boolean.FALSE);
+        CrmPermissionUtils.appendPermissionCondition(query, CrmBizTypeEnum.CRM_BUSINESS.getType(),
+                CrmBusinessDO::getId, userId, pageReqVO.getSceneType());
         // 拼接自身的查询条件
         query.selectAll(CrmBusinessDO.class)
                 .likeIfPresent(CrmBusinessDO::getName, pageReqVO.getName())
@@ -54,11 +55,20 @@ public interface CrmBusinessMapper extends BaseMapperX<CrmBusinessDO> {
         return selectJoinPage(pageReqVO, CrmBusinessDO.class, query);
     }
 
-    default List<CrmBusinessDO> selectBatchIds(Collection<Long> ids, Long userId) {
-        MPJLambdaWrapperX<CrmBusinessDO> query = new MPJLambdaWrapperX<>();
-        // 拼接数据权限的查询条件
-        CrmQueryWrapperUtils.appendPermissionCondition(query, CrmBizTypeEnum.CRM_BUSINESS.getType(), ids, userId);
-        return selectJoinList(CrmBusinessDO.class, query);
+    default Long selectCountByStatusTypeId(Long statusTypeId) {
+        return selectCount(CrmBusinessDO::getStatusTypeId, statusTypeId);
+    }
+
+    default List<CrmBusinessDO> selectListByCustomerIdOwnerUserId(Long customerId, Long ownerUserId) {
+        return selectList(new LambdaQueryWrapperX<CrmBusinessDO>()
+                .eq(CrmBusinessDO::getCustomerId, customerId)
+                .eq(CrmBusinessDO::getOwnerUserId, ownerUserId));
+    }
+
+    default PageResult<CrmBusinessDO> selectPage(CrmStatisticsFunnelReqVO pageVO) {
+        return selectPage(pageVO, new LambdaQueryWrapperX<CrmBusinessDO>()
+                .in(CrmBusinessDO::getOwnerUserId, pageVO.getUserIds())
+                .betweenIfPresent(CrmBusinessDO::getCreateTime, pageVO.getTimes()));
     }
 
 }

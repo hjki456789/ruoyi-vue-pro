@@ -1,6 +1,5 @@
 package cn.iocoder.yudao.framework.security.config;
 
-import cn.iocoder.yudao.framework.security.core.aop.PreAuthenticatedAspect;
 import cn.iocoder.yudao.framework.security.core.context.TransmittableThreadLocalSecurityContextHolderStrategy;
 import cn.iocoder.yudao.framework.security.core.filter.TokenAuthenticationFilter;
 import cn.iocoder.yudao.framework.security.core.handler.AccessDeniedHandlerImpl;
@@ -12,6 +11,7 @@ import cn.iocoder.yudao.module.system.api.oauth2.OAuth2TokenApi;
 import cn.iocoder.yudao.module.system.api.permission.PermissionApi;
 import org.springframework.beans.factory.config.MethodInvokingFactoryBean;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigureOrder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,19 +31,12 @@ import javax.annotation.Resource;
  * @author 芋道源码
  */
 @AutoConfiguration
+@AutoConfigureOrder(-1) // 目的：先于 Spring Security 自动配置，避免一键改包后，org.* 基础包无法生效
 @EnableConfigurationProperties(SecurityProperties.class)
 public class YudaoSecurityAutoConfiguration {
 
     @Resource
     private SecurityProperties securityProperties;
-
-    /**
-     * 处理用户未登录拦截的切面的 Bean
-     */
-    @Bean
-    public PreAuthenticatedAspect preAuthenticatedAspect() {
-        return new PreAuthenticatedAspect();
-    }
 
     /**
      * 认证失败处理类 Bean

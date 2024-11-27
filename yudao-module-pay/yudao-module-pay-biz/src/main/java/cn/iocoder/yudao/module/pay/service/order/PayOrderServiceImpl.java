@@ -111,11 +111,11 @@ public class PayOrderServiceImpl implements PayOrderService {
     @Override
     public Long createOrder(PayOrderCreateReqDTO reqDTO) {
         // 校验 App
-        PayAppDO app = appService.validPayApp(reqDTO.getAppId());
+        PayAppDO app = appService.validPayApp(reqDTO.getAppKey());
 
         // 查询对应的支付交易单是否已经存在。如果是，则直接返回
         PayOrderDO order = orderMapper.selectByAppIdAndMerchantOrderId(
-                reqDTO.getAppId(), reqDTO.getMerchantOrderId());
+                app.getId(), reqDTO.getMerchantOrderId());
         if (order != null) {
             log.warn("[createOrder][appId({}) merchantOrderId({}) 已经存在对应的支付单({})]", order.getAppId(),
                     order.getMerchantOrderId(), toJsonString(order)); // 理论来说，不会出现这个情况
@@ -163,7 +163,14 @@ public class PayOrderServiceImpl implements PayOrderService {
 
         // 4. 如果调用直接支付成功，则直接更新支付单状态为成功。例如说：付款码支付，免密支付时，就直接验证支付成功
         if (unifiedOrderResp != null) {
-            getSelf().notifyOrder(channel, unifiedOrderResp);
+            try {
+                getSelf().notifyOrder(channel, unifiedOrderResp);
+            } catch (Exception e) {
+                // 兼容 https://gitee.com/zhijiantianya/yudao-cloud/issues/I8SM9H 场景
+                // 支付宝或微信扫码之后时，由于 PayClient 是直接返回支付成功，而支付也会有回调，导致存在并发更新问题，此时一般是可以 try catch 直接忽略
+                log.warn("[submitOrder][order({}) channel({}) 支付结果({}) 通知时发生异常，可能是并发问题]",
+                        order, channel, unifiedOrderResp, e);
+            }
             // 如有渠道错误码，则抛出业务异常，提示用户
             if (StrUtil.isNotEmpty(unifiedOrderResp.getChannelErrorCode())) {
                 throw exception(PAY_ORDER_SUBMIT_CHANNEL_ERROR, unifiedOrderResp.getChannelErrorCode(),
@@ -431,9 +438,7 @@ public class PayOrderServiceImpl implements PayOrderService {
             return;
         }
 
-        // TODO 芋艿：应该 new 出来更新
-        order.setPrice(payPrice);
-        orderMapper.updateById(order);
+        orderMapper.updateById(new PayOrderDO().setId(order.getId()).setPrice(payPrice));
     }
 
     @Override
@@ -449,7 +454,7 @@ public class PayOrderServiceImpl implements PayOrderService {
     @Override
     public int syncOrder(LocalDateTime minCreateTime) {
         // 1. 查询指定创建时间前的待支付订单
-        List<PayOrderExtensionDO> orderExtensions = orderExtensionMapper.selectListByStatusAndCreateTimeLe(
+        List<PayOrderExtensionDO> orderExtensions = orderExtensionMapper.selectListByStatusAndCreateTimeGe(
                 PayOrderStatusEnum.WAITING.getStatus(), minCreateTime);
         if (CollUtil.isEmpty(orderExtensions)) {
             return 0;
@@ -460,6 +465,18 @@ public class PayOrderServiceImpl implements PayOrderService {
             count += syncOrder(orderExtension) ? 1 : 0;
         }
         return count;
+    }
+
+    @Override
+    public void syncOrderQuietly(Long id) {
+        // 1. 查询待支付订单
+        List<PayOrderExtensionDO> orderExtensions = orderExtensionMapper.selectListByOrderIdAndStatus(id,
+                PayOrderStatusEnum.WAITING.getStatus());
+
+        // 2. 遍历执行
+        for (PayOrderExtensionDO orderExtension : orderExtensions) {
+            syncOrder(orderExtension);
+        }
     }
 
     /**
@@ -477,6 +494,14 @@ public class PayOrderServiceImpl implements PayOrderService {
                 return false;
             }
             PayOrderRespDTO respDTO = payClient.getOrder(orderExtension.getNo());
+            // 如果查询到订单不存在，PayClient 返回的状态为关闭。但此时不能关闭订单。存在以下一种场景：
+            //  拉起渠道支付后，短时间内用户未及时完成支付，但是该订单同步定时任务恰巧自动触发了，主动查询结果为订单不存在。
+            //  当用户支付成功之后，该订单状态在渠道的回调中无法从已关闭改为已支付，造成重大影响。
+            // 考虑此定时任务是异常场景的兜底操作，因此这里不做变更，优先以回调为准。
+            // 让订单自动随着支付渠道那边一起等到过期，确保渠道先过期关闭支付入口，而后通过订单过期定时任务关闭自己的订单。
+            if (PayOrderStatusRespEnum.isClosed(respDTO.getStatus())) {
+                return false;
+            }
             // 1.2 回调支付结果
             notifyOrder(orderExtension.getChannelId(), respDTO);
 

@@ -3,10 +3,10 @@ package cn.iocoder.yudao.module.pay.controller.admin.notify;
 import cn.hutool.core.collection.CollUtil;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
-import cn.iocoder.yudao.framework.operatelog.core.annotations.OperateLog;
 import cn.iocoder.yudao.framework.pay.core.client.PayClient;
 import cn.iocoder.yudao.framework.pay.core.client.dto.order.PayOrderRespDTO;
 import cn.iocoder.yudao.framework.pay.core.client.dto.refund.PayRefundRespDTO;
+import cn.iocoder.yudao.framework.pay.core.client.dto.transfer.PayTransferRespDTO;
 import cn.iocoder.yudao.module.pay.controller.admin.notify.vo.PayNotifyTaskDetailRespVO;
 import cn.iocoder.yudao.module.pay.controller.admin.notify.vo.PayNotifyTaskPageReqVO;
 import cn.iocoder.yudao.module.pay.controller.admin.notify.vo.PayNotifyTaskRespVO;
@@ -19,6 +19,7 @@ import cn.iocoder.yudao.module.pay.service.channel.PayChannelService;
 import cn.iocoder.yudao.module.pay.service.notify.PayNotifyService;
 import cn.iocoder.yudao.module.pay.service.order.PayOrderService;
 import cn.iocoder.yudao.module.pay.service.refund.PayRefundService;
+import cn.iocoder.yudao.module.pay.service.transfer.PayTransferService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -50,6 +51,8 @@ public class PayNotifyController {
     @Resource
     private PayRefundService refundService;
     @Resource
+    private PayTransferService payTransferService;
+    @Resource
     private PayNotifyService notifyService;
     @Resource
     private PayAppService appService;
@@ -59,7 +62,6 @@ public class PayNotifyController {
     @PostMapping(value = "/order/{channelId}")
     @Operation(summary = "支付渠道的统一【支付】回调")
     @PermitAll
-    @OperateLog(enable = false) // 回调地址，无需记录操作日志
     public String notifyOrder(@PathVariable("channelId") Long channelId,
                               @RequestParam(required = false) Map<String, String> params,
                               @RequestBody(required = false) String body) {
@@ -67,7 +69,7 @@ public class PayNotifyController {
         // 1. 校验支付渠道是否存在
         PayClient payClient = channelService.getPayClient(channelId);
         if (payClient == null) {
-            log.error("[notifyCallback][渠道编号({}) 找不到对应的支付客户端]", channelId);
+            log.error("[notifyOrder][渠道编号({}) 找不到对应的支付客户端]", channelId);
             throw exception(CHANNEL_NOT_FOUND);
         }
 
@@ -80,21 +82,40 @@ public class PayNotifyController {
     @PostMapping(value = "/refund/{channelId}")
     @Operation(summary = "支付渠道的统一【退款】回调")
     @PermitAll
-    @OperateLog(enable = false) // 回调地址，无需记录操作日志
     public String notifyRefund(@PathVariable("channelId") Long channelId,
-                              @RequestParam(required = false) Map<String, String> params,
-                              @RequestBody(required = false) String body) {
+                               @RequestParam(required = false) Map<String, String> params,
+                               @RequestBody(required = false) String body) {
         log.info("[notifyRefund][channelId({}) 回调数据({}/{})]", channelId, params, body);
         // 1. 校验支付渠道是否存在
         PayClient payClient = channelService.getPayClient(channelId);
         if (payClient == null) {
-            log.error("[notifyCallback][渠道编号({}) 找不到对应的支付客户端]", channelId);
+            log.error("[notifyRefund][渠道编号({}) 找不到对应的支付客户端]", channelId);
             throw exception(CHANNEL_NOT_FOUND);
         }
 
         // 2. 解析通知数据
         PayRefundRespDTO notify = payClient.parseRefundNotify(params, body);
         refundService.notifyRefund(channelId, notify);
+        return "success";
+    }
+
+    @PostMapping(value = "/transfer/{channelId}")
+    @Operation(summary = "支付渠道的统一【转账】回调")
+    @PermitAll
+    public String notifyTransfer(@PathVariable("channelId") Long channelId,
+                                 @RequestParam(required = false) Map<String, String> params,
+                                 @RequestBody(required = false) String body) {
+        log.info("[notifyTransfer][channelId({}) 回调数据({}/{})]", channelId, params, body);
+        // 1. 校验支付渠道是否存在
+        PayClient payClient = channelService.getPayClient(channelId);
+        if (payClient == null) {
+            log.error("[notifyTransfer][渠道编号({}) 找不到对应的支付客户端]", channelId);
+            throw exception(CHANNEL_NOT_FOUND);
+        }
+
+        // 2. 解析通知数据
+        PayTransferRespDTO notify = payClient.parseTransferNotify(params, body);
+        payTransferService.notifyTransfer(channelId, notify);
         return "success";
     }
 

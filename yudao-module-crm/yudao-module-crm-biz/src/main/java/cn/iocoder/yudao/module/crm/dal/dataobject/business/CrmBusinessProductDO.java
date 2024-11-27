@@ -10,7 +10,9 @@ import lombok.*;
 import java.math.BigDecimal;
 
 /**
- * 商机产品关联表 DO
+ * CRM 商机产品关联表 DO
+ *
+ * CrmBusinessDO : CrmBusinessProductDO = 1 : N
  *
  * @author lzxhqs
  */
@@ -29,52 +31,37 @@ public class CrmBusinessProductDO extends BaseDO {
      */
     @TableId
     private Long id;
-
     /**
      * 商机编号
      *
      * 关联 {@link CrmBusinessDO#getId()}
      */
     private Long businessId;
-
     /**
      * 产品编号
      *
      * 关联 {@link CrmProductDO#getId()}
      */
     private Long productId;
-
-    // TODO @lzxhqs：改成 Integer，单位：分。目前整体倾向放大 100 倍哈
     /**
-     * 产品单价
+     * 产品单价，单位：元
+     *
+     * 冗余 {@link CrmProductDO#getPrice()}
      */
-    private BigDecimal price;
-
+    private BigDecimal productPrice;
     /**
-     * 销售价格
+     * 商机价格, 单位：元
      */
-    private BigDecimal salesPrice;
-
-    // TODO @lzxhqs：改成 count
+    private BigDecimal businessPrice;
     /**
      * 数量
      */
-    private BigDecimal num;
-
-    // TODO @lzxhqs：改成 discountPercent
+    private BigDecimal count;
     /**
-     * 折扣
+     * 总计价格，单位：元
+     *
+     * totalPrice = businessPrice * count
      */
-    private BigDecimal discount;
+    private BigDecimal totalPrice;
 
-    // TODO @lzxhqs：改成 totalPrice；总计价格，和现有项目风格一致；
-    /**
-     * 小计（折扣后价格）
-     */
-    private BigDecimal subtotal;
-
-    /**
-     * 单位
-     */
-    private String unit;
 }

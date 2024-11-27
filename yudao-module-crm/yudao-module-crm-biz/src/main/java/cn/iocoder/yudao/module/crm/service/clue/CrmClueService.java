@@ -4,13 +4,10 @@ import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.crm.controller.admin.clue.vo.CrmCluePageReqVO;
 import cn.iocoder.yudao.module.crm.controller.admin.clue.vo.CrmClueSaveReqVO;
 import cn.iocoder.yudao.module.crm.controller.admin.clue.vo.CrmClueTransferReqVO;
-import cn.iocoder.yudao.module.crm.controller.admin.clue.vo.CrmClueTransformReqVO;
 import cn.iocoder.yudao.module.crm.dal.dataobject.clue.CrmClueDO;
-import cn.iocoder.yudao.module.crm.service.clue.bo.CrmClueUpdateFollowUpReqBO;
 
 import javax.validation.Valid;
-import java.util.Collection;
-import java.util.List;
+import java.time.LocalDateTime;
 
 /**
  * 线索 Service 接口
@@ -37,9 +34,11 @@ public interface CrmClueService {
     /**
      * 更新线索相关的跟进信息
      *
-     * @param clueUpdateFollowUpReqBO 信息
+     * @param id 编号
+     * @param contactNextTime 下次联系时间
+     * @param contactLastContent 最后联系内容
      */
-    void updateClueFollowUp(CrmClueUpdateFollowUpReqBO clueUpdateFollowUpReqBO);
+    void updateClueFollowUp(Long id, LocalDateTime contactNextTime, String contactLastContent);
 
     /**
      * 删除线索
@@ -55,14 +54,6 @@ public interface CrmClueService {
      * @return 线索
      */
     CrmClueDO getClue(Long id);
-
-    /**
-     * 获得线索列表
-     *
-     * @param ids 编号
-     * @return 线索列表
-     */
-    List<CrmClueDO> getClueList(Collection<Long> ids, Long userId);
 
     /**
      * 获得线索分页
@@ -84,9 +75,17 @@ public interface CrmClueService {
     /**
      * 线索转化为客户
      *
-     * @param reqVO  线索编号
+     * @param id  线索编号
      * @param userId 用户编号
      */
-    void translateCustomer(CrmClueTransformReqVO reqVO, Long userId);
+    void transformClue(Long id, Long userId);
+
+    /**
+     * 获得分配给我的、待跟进的线索数量
+     *
+     * @param userId 用户编号
+     * @return 数量
+     */
+    Long getFollowClueCount(Long userId);
 
 }

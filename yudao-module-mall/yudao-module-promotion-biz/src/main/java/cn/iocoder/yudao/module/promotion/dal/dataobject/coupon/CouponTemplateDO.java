@@ -30,6 +30,11 @@ import java.util.List;
 @EqualsAndHashCode(callSuper = true)
 public class CouponTemplateDO extends BaseDO {
 
+    /**
+     * 不限制领取数量
+     */
+    public static final Integer TIME_LIMIT_COUNT_MAX = -1;
+
     // ========== 基本信息 BEGIN ==========
     /**
      * 模板编号，自增唯一
@@ -41,10 +46,15 @@ public class CouponTemplateDO extends BaseDO {
      */
     private String name;
     /**
+     * 优惠券说明
+     */
+    private String description;
+    /**
      * 状态
      *
      * 枚举 {@link CommonStatusEnum}
      */
+    // TODO 芋艿：要不要改成 3 个状态？？
     private Integer status;
 
     // ========== 基本信息 END ==========
@@ -157,6 +167,9 @@ public class CouponTemplateDO extends BaseDO {
      * 使用优惠券的次数
      */
     private Integer useCount;
+
     // ========== 统计信息 END ==========
+
+    // TODO 芋艿：领取开始时间、领取结束时间
 
 }

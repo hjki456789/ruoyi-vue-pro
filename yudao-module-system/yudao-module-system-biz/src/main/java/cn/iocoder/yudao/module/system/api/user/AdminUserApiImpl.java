@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.system.api.user;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjUtil;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
+import cn.iocoder.yudao.framework.datapermission.core.annotation.DataPermission;
 import cn.iocoder.yudao.module.system.api.user.dto.AdminUserRespDTO;
 import cn.iocoder.yudao.module.system.dal.dataobject.dept.DeptDO;
 import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
@@ -11,10 +12,10 @@ import cn.iocoder.yudao.module.system.service.user.AdminUserService;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertSet;
 
@@ -38,34 +39,27 @@ public class AdminUserApiImpl implements AdminUserApi {
     }
 
     @Override
-    public List<AdminUserRespDTO> getUserListBySubordinate(Long userId) {
+    public List<AdminUserRespDTO> getUserListBySubordinate(Long id) {
         // 1.1 获取用户负责的部门
-        AdminUserDO user = userService.getUser(userId);
-        if (user == null) {
+        List<DeptDO> depts = deptService.getDeptListByLeaderUserId(id);
+        if (CollUtil.isEmpty(depts)) {
             return Collections.emptyList();
         }
-        ArrayList<Long> deptIds = new ArrayList<>();
-        DeptDO dept = deptService.getDept(user.getDeptId());
-        if (dept == null) {
-            return Collections.emptyList();
-        }
-        if (ObjUtil.notEqual(dept.getLeaderUserId(), userId)) { // 校验为负责人
-            return Collections.emptyList();
-        }
-        deptIds.add(dept.getId());
         // 1.2 获取所有子部门
-        List<DeptDO> childDeptList = deptService.getChildDeptList(dept.getId());
+        Set<Long> deptIds = convertSet(depts, DeptDO::getId);
+        List<DeptDO> childDeptList = deptService.getChildDeptList(deptIds);
         if (CollUtil.isNotEmpty(childDeptList)) {
             deptIds.addAll(convertSet(childDeptList, DeptDO::getId));
         }
 
         // 2. 获取部门对应的用户信息
         List<AdminUserDO> users = userService.getUserListByDeptIds(deptIds);
-        users.removeIf(item -> ObjUtil.equal(item.getId(), userId)); // 排除自己
+        users.removeIf(item -> ObjUtil.equal(item.getId(), id)); // 排除自己
         return BeanUtils.toBean(users, AdminUserRespDTO.class);
     }
 
     @Override
+    @DataPermission(enable = false) // 禁用数据权限。原因是，一般基于指定 id 的 API 查询，都是数据拼接为主
     public List<AdminUserRespDTO> getUserList(Collection<Long> ids) {
         List<AdminUserDO> users = userService.getUserList(ids);
         return BeanUtils.toBean(users, AdminUserRespDTO.class);
