@@ -57,7 +57,7 @@ public class BpmModelController {
     @GetMapping("/list")
     @Operation(summary = "获得模型分页")
     @Parameter(name = "name", description = "模型名称", example = "芋艿")
-    public CommonResult<List<BpmModelRespVO>> getModelPage(@RequestParam(value = "name", required = false) String name) {
+    public CommonResult<List<BpmModelRespVO>> getModelList(@RequestParam(value = "name", required = false) String name) {
         List<Model> list = modelService.getModelList(name);
         if (CollUtil.isEmpty(list)) {
             return success(Collections.emptyList());
@@ -158,6 +158,15 @@ public class BpmModelController {
     @PreAuthorize("@ss.hasPermission('bpm:model:delete')")
     public CommonResult<Boolean> deleteModel(@RequestParam("id") String id) {
         modelService.deleteModel(getLoginUserId(), id);
+        return success(true);
+    }
+
+    @DeleteMapping("/clean")
+    @Operation(summary = "清理模型")
+    @Parameter(name = "id", description = "编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('bpm:model:clean')")
+    public CommonResult<Boolean> cleanModel(@RequestParam("id") String id) {
+        modelService.cleanModel(getLoginUserId(), id);
         return success(true);
     }
 

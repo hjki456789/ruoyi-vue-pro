@@ -14,25 +14,35 @@ import cn.iocoder.yudao.module.bpm.convert.definition.BpmModelConvert;
 import cn.iocoder.yudao.module.bpm.dal.dataobject.definition.BpmFormDO;
 import cn.iocoder.yudao.module.bpm.enums.definition.BpmModelFormTypeEnum;
 import cn.iocoder.yudao.module.bpm.enums.definition.BpmModelTypeEnum;
+import cn.iocoder.yudao.module.bpm.enums.task.BpmReasonEnum;
 import cn.iocoder.yudao.module.bpm.framework.flowable.core.candidate.BpmTaskCandidateInvoker;
+import cn.iocoder.yudao.module.bpm.framework.flowable.core.enums.BpmTaskCandidateStrategyEnum;
 import cn.iocoder.yudao.module.bpm.framework.flowable.core.util.BpmnModelUtils;
 import cn.iocoder.yudao.module.bpm.framework.flowable.core.util.FlowableUtils;
 import cn.iocoder.yudao.module.bpm.framework.flowable.core.util.SimpleModelUtils;
+import cn.iocoder.yudao.module.bpm.service.task.BpmProcessInstanceCopyService;
 import lombok.extern.slf4j.Slf4j;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.common.engine.impl.db.SuspensionState;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
+import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.repository.Model;
 import org.flowable.engine.repository.ModelQuery;
 import org.flowable.engine.repository.ProcessDefinition;
+import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.task.api.Task;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
 import javax.validation.Valid;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,6 +50,7 @@ import java.util.Objects;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertMap;
 import static cn.iocoder.yudao.module.bpm.enums.ErrorCodeConstants.*;
+import static cn.iocoder.yudao.module.bpm.framework.flowable.core.util.BpmnModelUtils.parseCandidateStrategy;
 
 /**
  * 流程模型实现：主要进行 Flowable {@link Model} 的维护
@@ -63,12 +74,22 @@ public class BpmModelServiceImpl implements BpmModelService {
     @Resource
     private BpmTaskCandidateInvoker taskCandidateInvoker;
 
+    @Resource
+    private HistoryService historyService;
+    @Resource
+    private RuntimeService runtimeService;
+    @Resource
+    private TaskService taskService;
+    @Resource
+    private BpmProcessInstanceCopyService processInstanceCopyService;
+
     @Override
     public List<Model> getModelList(String name) {
         ModelQuery modelQuery = repositoryService.createModelQuery();
         if (StrUtil.isNotEmpty(name)) {
             modelQuery.modelNameLike("%" + name + "%");
         }
+        modelQuery.modelTenantId(FlowableUtils.getTenantId());
         return modelQuery.list();
     }
 
@@ -191,11 +212,11 @@ public class BpmModelServiceImpl implements BpmModelService {
     public void deployModel(Long userId, String id) {
         // 1.1 校验流程模型存在
         Model model = validateModelManager(id, userId);
+        BpmModelMetaInfoVO metaInfo = BpmModelConvert.INSTANCE.parseMetaInfo(model);
         // 1.2 校验流程图
         byte[] bpmnBytes = getModelBpmnXML(model.getId());
-        validateBpmnXml(bpmnBytes);
+        validateBpmnXml(bpmnBytes, metaInfo.getType());
         // 1.3 校验表单已配
-        BpmModelMetaInfoVO metaInfo = BpmModelConvert.INSTANCE.parseMetaInfo(model);
         BpmFormDO form = validateFormConfig(metaInfo);
         // 1.4 校验任务分配规则已配置
         taskCandidateInvoker.validateBpmnConfig(bpmnBytes);
@@ -215,7 +236,7 @@ public class BpmModelServiceImpl implements BpmModelService {
         repositoryService.saveModel(model);
     }
 
-    private void validateBpmnXml(byte[] bpmnBytes) {
+    private void validateBpmnXml(byte[] bpmnBytes, Integer type) {
         BpmnModel bpmnModel = BpmnModelUtils.getBpmnModel(bpmnBytes);
         if (bpmnModel == null) {
             throw exception(MODEL_NOT_EXISTS);
@@ -232,6 +253,15 @@ public class BpmModelServiceImpl implements BpmModelService {
                 throw exception(MODEL_DEPLOY_FAIL_BPMN_USER_TASK_NAME_NOT_EXISTS, userTask.getId());
             }
         });
+        // 3. 校验第一个用户任务节点的规则类型是否为“审批人自选”，BPMN 设计器，校验第一个用户任务节点，SIMPLE 设计器，第一个节点固定为发起人所以校验第二个用户任务节点
+        UserTask firUserTask = CollUtil.get(userTasks, BpmModelTypeEnum.BPMN.getType().equals(type) ? 0 : 1);
+        if (firUserTask == null) {
+            return;
+        }
+        Integer candidateStrategy = parseCandidateStrategy(firUserTask);
+        if (Objects.equals(candidateStrategy, BpmTaskCandidateStrategyEnum.APPROVE_USER_SELECT.getStrategy())) {
+            throw exception(MODEL_DEPLOY_FAIL_FIRST_USER_TASK_CANDIDATE_STRATEGY_ERROR, firUserTask.getName());
+        }
     }
 
     @Override
@@ -244,6 +274,34 @@ public class BpmModelServiceImpl implements BpmModelService {
         repositoryService.deleteModel(id);
         // 禁用流程定义
         updateProcessDefinitionSuspended(model.getDeploymentId());
+    }
+
+    @Override
+    public void cleanModel(Long userId, String id) {
+        // 1. 校验流程模型存在
+        Model model = validateModelManager(id, userId);
+
+        // 2. 清理所有流程数据
+        // 2.1 先取消所有正在运行的流程
+        List<ProcessInstance> processInstances = runtimeService.createProcessInstanceQuery()
+                .processDefinitionKey(model.getKey()).list();
+        processInstances.forEach(processInstance -> {
+            runtimeService.deleteProcessInstance(processInstance.getId(),
+                    BpmReasonEnum.CANCEL_BY_SYSTEM.getReason());
+            historyService.deleteHistoricProcessInstance(processInstance.getId());
+            processInstanceCopyService.deleteProcessInstanceCopy(processInstance.getId());
+        });
+        // 2.2 再从历史中删除所有相关的流程数据
+        List<HistoricProcessInstance> historicProcessInstances = historyService.createHistoricProcessInstanceQuery()
+                .processDefinitionKey(model.getKey()).list();
+        historicProcessInstances.forEach(historicProcessInstance -> {
+            historyService.deleteHistoricProcessInstance(historicProcessInstance.getId());
+            processInstanceCopyService.deleteProcessInstanceCopy(historicProcessInstance.getId());
+        });
+        // 2.3 清理所有 Task
+        List<Task> tasks = taskService.createTaskQuery()
+                .processDefinitionKey(model.getKey()).list();
+        tasks.forEach(task -> taskService.deleteTask(task.getId(),BpmReasonEnum.CANCEL_BY_PROCESS_CLEAN.getReason()));
     }
 
     @Override
